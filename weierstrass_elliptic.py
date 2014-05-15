@@ -18,28 +18,48 @@
 # 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 class weierstrass_elliptic(object):
-	# TODO:
-	# - for testing, use results from Wolfram alpha with all possible branches (Delta positive and negative, g3 positive and negative)
-	#   and both real and complex arguments.
-	def __cubic_roots(self,a,c,d):
-		from mpmath import mpf, polyroots
-		assert(all([isinstance(_,mpf) for _ in [a,c,d]]))
-		Delta = -4 * a * c*c*c - 27 * a*a * d*d
-		self.__Delta = Delta
-		# NOTE: replace with exact calculation of cubic roots.
-		proots, err = polyroots([a,0,c,d],error=True,maxsteps=100)
-		if Delta < 0:
-			# NOTE: here and below we ignore any residual imaginary part that we know must come from numerical artefacts.
-			# Sort the roots following the convention. proots[1] is the first complex root, proots[0] is the real one.
-			# The complex root with negative imaginary part is e3.
-			if proots[2].imag <= 0:
-				e1,e2,e3 = proots[1],proots[0].real,proots[2]
-			else:
-				e1,e2,e3 = proots[2],proots[0].real,proots[1]
+
+	def __init__(self,g2,g3):
+		from mpmath import mpf
+		g2 = mpf(g2)
+		# Handle negative g3.
+		#if g3 < 0:
+		#	g3 = -mpf(g3)
+		#	self.__ng3 = True
+		#else:
+		#	g3 = mpf(g3)
+		self.__ng3 = False
+		#assert(g3 >= 0)
+		# Upon construction we compute/store the discriminant, the roots, the periods and more
+		self.__Delta = 4 * 4 * g2*g2*g2 - 27 * 4*4 * g3*g3
+		self.__invariants = (g2,g3)
+		self.__user_invariants = self.__compute_user_invariants()
+		self.__roots = self.__cubic_roots()
+		self.__periods = self.__compute_periods()
+		self.__user_periods = self.__compute_user_periods()
+
+	def __cubic_roots(self):
+		from mpmath import  sqrt
+		g2 = self.__invariants[0]
+		g3 = self.__invariants[1]
+		Delta = g3*g3 - 1.0/27.0 * g2**3.0
+		alpha = sqrt(1.0/12.0*g2)
+		beta = (g3+sqrt(Delta))**(1.0/3.0) / 2.0 / alpha
+		gamma = 1.0 / beta
+		cos23pi = -0.5
+		sin23pi = 0.8660254037844387
+
+		e1 = alpha*(beta+gamma)
+		e2 = (cos23pi+sin23pi*1j)*beta + (cos23pi-sin23pi*1j)*gamma 
+		e2 = e2*alpha
+		e3 = (cos23pi-sin23pi*1j)*beta + (cos23pi+sin23pi*1j)*gamma 
+		e3 = -e1-e2
+		if self.__Delta > 0:
+			e1,e2,e3 = sorted([e1.real,e2.real,e3.real], reverse = True)
 		else:
-			# The convention in this case is to sort in descending order.
-			e1,e2,e3 = sorted([_.real for _ in proots],reverse = True)
+			e1,e2,e3 = sorted([e1,e2,e3], key = lambda x: x.imag, reverse = True)
 		return e1,e2,e3
+
 	def __compute_periods(self):
 		# A+S 18.9.
 		from mpmath import sqrt, ellipk, mpc, pi, mpf
@@ -51,6 +71,10 @@ class weierstrass_elliptic(object):
 			Kpm = ellipk(1 - m)
 			om = Km / sqrt(e1 - e3)
 			omp = mpc(0,1) * om * Kpm / Km
+			self.__om = om
+			self.__omp = omp
+			self.__om2 = self.__om + self.__omp
+			self.__om2p = self.__omp - self.__om
 		elif Delta < 0:
 			# NOTE: the expression in the sqrt has to be real and positive, as e1 and e3 are
 			# complex conjugate and e2 is real.
@@ -63,6 +87,10 @@ class weierstrass_elliptic(object):
 			om2p = mpc(0,1) * Kpm * om2 / Km
 			om = (om2 - om2p) / 2
 			omp = (om2 + om2p) / 2
+			self.__om2p = om2p
+			self.__om2 = om2
+			self.__om = om
+			self.__omp = omp
 		else:
 			g2, g3 = self.__invariants
 			if g2 == 0 and g3 == 0:
@@ -74,6 +102,10 @@ class weierstrass_elliptic(object):
 				c = e1 / 2
 				om = 1 / sqrt(12 * c) * pi()
 				omp = mpc(0,'+inf')
+			self.__om = om
+			self.__omp = omp
+			self.__om2 = self.__om + self.__omp
+			self.__om2p = self.__omp - self.__om
 		return 2 * om, 2 * omp
 	def __compute_user_periods(self):
 		from mpmath import mpc
@@ -97,23 +129,7 @@ class weierstrass_elliptic(object):
 			return self.__invariants[0],-self.__invariants[1]
 		else:
 			return self.__invariants
-	def __init__(self,g2,g3):
-		from mpmath import mpf
-		g2 = mpf(g2)
-		# Handle negative g3.
-		if g3 < 0:
-			g3 = -mpf(g3)
-			self.__ng3 = True
-		else:
-			g3 = mpf(g3)
-			self.__ng3 = False
-		assert(g3 >= 0)
-		# Store for future use.
-		self.__invariants = (g2,g3)
-		self.__user_invariants = self.__compute_user_invariants()
-		self.__roots = self.__cubic_roots(mpf(4),-g2,-g3)
-		self.__periods = self.__compute_periods()
-		self.__user_periods = self.__compute_user_periods()
+	
 	@property
 	def invariants(self):
 		from copy import deepcopy
@@ -126,6 +142,10 @@ class weierstrass_elliptic(object):
 	def periods(self):
 		from copy import deepcopy
 		return deepcopy(self.__user_periods)
+	#@property
+	#def omegas(self):
+	#	from copy import deepcopy
+	#	return deepcopy((self.__om,self.__omp,self.__om2,self.__om2p))
 	@property
 	def roots(self):
 		from copy import deepcopy
@@ -144,135 +164,232 @@ class weierstrass_elliptic(object):
 		retval += 'Periods:\t' + str(self.periods) + '\n'
 		retval += 'Roots:\t\t' + str(self.roots) + '\n'
 		return retval
+
 	def P(self,z):
-		# A+S 18.9.
-		from mpmath import sqrt, mpc, sin, ellipfun, mpf
-		Delta = self.Delta
-		e1, e2, e3 = self.__roots
-		if self.__ng3:
-			z = mpc(0,1) * z
-		if Delta > 0:
-			zs = sqrt(e1 - e3) * z
-			m = (e2 - e3) / (e1 - e3)
-			retval = e3 + (e1 - e3) / ellipfun('sn',u=zs,m=m)**2
-		elif Delta < 0:
-			H2 = (sqrt((e2 - e3) * (e2 - e1))).real
-			assert(H2 > 0)
-			m = mpf(1) / mpf(2) - 3 * e2 / (4 * H2)
-			zp = 2 * z * sqrt(H2)
-			retval = e2 + H2 * (1 + ellipfun('cn',u=zp,m=m)) / (1 - ellipfun('cn',u=zp,m=m))
+		# 0 - Number of iterations is fixed
+		# this could be adapted together with the number of terms retained
+		# in the Laurent series to increase performance .. but how?		
+		N = 0
+
+		# 1 - we reduce to the fundamental period parallelogram
+		z_r = self.reduce_to_fpp2(z)
+
+		# 2 - we reduce z_r to 1/4 FPP to further reduce the error of the iterations
+		# NOTE: i tried to reduce to the fundamental rectangle too, 
+		# but could not get the 18.2.34 from Abra to work :(	
+		x = z_r.real
+		y = z_r.imag
+		
+		if self.Delta >= 0:
+			if (x>=self.__om and y>=self.__omp.imag): 	#R3
+				z_r = 2.0*self.__om2-z_r
+			elif (x>self.__om): 				#R4
+				z_r = (2.0*self.__om-z_r).conjugate()
+			elif (y>self.__omp.imag): 			#R2
+				z_r = (z_r-2.0*self.__omp).conjugate()
+			else: 						#R1
+				z_r = z_r
 		else:
-			g2, g3 = self.__invariants
-			if g2 == 0 and g3 == 0:
-				retval = 1 / (z**2)
-			else:
-				c = e1 / 2
-				retval = -c + 3 * c / (sin(sqrt(3 * c) * z))**2
-		if self.__ng3:
-			return -retval
+			if (y>=0 and x<=self.__om2.real):		#R1
+				z_r = z_r
+			if (y>=0 and x>self.__om2.real):		#R2
+				z_r = z_r.conjugate()
+			if (y<=0 and x<=self.__om2.real):		#R3
+				z_r = 2.0*self.__om-z_r
+			if (y<=0 and x<=self.__om2.real):		#R4
+				z_r = (2.0*self.__om-z_r).conjugate()
+		
+		# 3 - We half z_r N times
+		for i in range(N):
+			z_r = z_r/2.0
+		# 4 - we now compute the Laurent series to the 7th term in the N-halved z_r
+		g2, g3 = self.__user_invariants
+		c2 = g2/20.0
+		c3 = g3/28.0
+		c23 = c2*c2*c2
+		c32 = c3*c3
+		c4 = c2*c2/3.0
+		c5 = 3.0*c2*c3/11.0
+		c6 = (2.0*c23+3.0*c32)/39.0
+		c7 = 2.0*c4*c3/11.0
+		c8 = 5.0*c2*(11.0*c23+36.0*c32)/7239.0
+		c9 = c3*(29.0*c23+11.0*c32)/2717.0
+		z02=z_r*z_r
+		z04=z02*z02
+		z06=z04*z02
+		z08=z04*z04
+		print 1.0/z02, c2*z02 ,c3*z04,c4*z04*z02,c5*z04*z04,c6*z06*z04,c7*z06*z06+c8*z08*z06,c9*z08*z08
+		P = 1.0/z02 + c2*z02 +c3*z04+c4*z04*z02+c5*z04*z04+c6*z06*z04+c7*z06*z06+c8*z08*z06+c9*z08*z08
+		print z_r
+		# 5 - We apply the duplication formula N times
+		for j in range(N):
+			P2 = P*P
+			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P2-1.0/2.0*g2)/(4.0*(4.0*P2*P-g2*P-g3))
+
+		# 6 - We return the appropriate value for P (according to the 1/4 FPP reduction formulas)
+		if self.Delta >=0:
+			if (x>self.__om.real and y>self.__omp.imag): 	#R3
+				return P
+			elif (x>self.__om.real): 			#R4
+				return P.conjugate()
+			elif (y>self.__omp.imag): 			#R2
+				return P.conjugate()
+			else: 						#R1
+				return P
 		else:
-			return retval
+			if (y>=0 and x<=self.__om2.real):		#R1
+				return P
+			if (y<0 and x <= self.__om2.real):		#R2
+				return P.conjugate()
+			if (y<=0 and x>self.__om2.real):		#R3
+				return P
+			if (y>0 and x>self.__om2.real):			#R4
+				return P.conjugate()
+		
 	def Pprime(self,z):
-		# A+S 18.9.
-		from mpmath import ellipfun, sqrt, cos, sin, mpc, mpf
-		Delta = self.Delta
-		e1, e2, e3 = self.__roots
-		if self.__ng3:
-			z = mpc(0,1) * z
-		if Delta > 0:
-			zs = sqrt(e1 - e3) * z
-			m = (e2 - e3) / (e1 - e3)
-			retval = -2 * sqrt((e1 - e3)**3) * ellipfun('cn',u=zs,m=m) * ellipfun('dn',u=zs,m=m) / (ellipfun('sn',u=zs,m=m)**3)
-		elif Delta < 0:
-			H2 = (sqrt((e2 - e3) * (e2 - e1))).real
-			assert(H2 > 0)
-			m = mpf(1) / mpf(2) - 3 * e2 / (4 * H2)
-			zp = 2 * z * sqrt(H2)
-			retval = -4 * sqrt(H2**3) * ellipfun('sn',u=zp,m=m) * ellipfun('dn',u=zp,m=m) / ((1 - ellipfun('cn',u=zp,m=m))**2)
+		# 1 - We compute P
+		P = self.P(z)
+		# 2 - From P we compute Pprime
+		return self.__Pprime_from_P(z,P)
+
+	def __Pprime_from_P(self,z,P):
+		from mpmath import sqrt,sign,phase,pi
+
+		# 1 - We start by computing Pprime without knowing its sign
+		g2, g3 = self.__user_invariants
+		Pprime = sqrt(4*P*P*P - g2*P - g3)
+
+		# 2 - We now resolve the sign ambiguity using the method in (Abramowitz 18.8)
+		# 2.1 - First we reduce to studying the behaviour in the fundamental parallelogram
+		z_r = self.reduce_to_fpp2(z)
+
+		# 2.2 - We then proceed separately according to the sign of Delta
+		if self.Delta > 0:
+			# 2.2.1 - We reduce the study of the sign to the fundamental rectangle (in this case 1/4 FPP)
+			x = z_r.real
+			y = z_r.imag
+			if (x>self.__om.real and y>self.__omp.imag): 	#R3
+				z_r = 2*self.__om2-z_r
+				Pprime_r =  - Pprime
+			elif (x>self.__om.real): 			#R4
+				z_r = (2*self.__om-z_r).conjugate()
+				Pprime_r = -Pprime.conjugate()
+			elif (y>self.__omp.imag): 			#R2
+				z_r = (z_r-2*self.__omp).conjugate()
+				Pprime_r = Pprime.conjugate()
+			else: 						#R1
+				Pprime_r = Pprime
+
+			# 2.2.2 - We apply Abramowitz criteria
+			z_r = z_r/self.__om
+			a = self.__omp.imag/self.__om.real
+			x = z_r.real
+			y = z_r.imag
+			if (y<=0.4 and x<=0.4): 				#region B
+				zmac = -2.0/z_r/z_r/z_r
+				flag = (sign(zmac.real)==sign(Pprime_r.real))
+			elif (y>=0.4 and x<=0.5): 				#region A (first case)	
+				flag = (Pprime_r.real >= 0)		
+			else: 							#elswhere
+				flag = (Pprime_r.imag >= 0)
+			if not flag:
+				Pprime = -Pprime
 		else:
-			g2, g3 = self.__invariants
-			if g2 == 0 and g3 == 0:
-				retval = -2 / (z**3)
-			else:
-				c = e1 / 2
-				A = sqrt(3 * c)
-				retval = -6 * c * A * cos(A * z) / (sin(A * z))**3
-		if self.__ng3:
-			return mpc(0,-1) * retval
-		else:
-			return retval
-	def zeta(self,z):
-		# A+S 18.10.
-		from mpmath import pi, jtheta, exp, mpc, cot, sqrt
-		Delta = self.Delta
-		e1, _, _ = self.__roots
-		om = self.__periods[0] / 2
-		omp = self.__periods[1] / 2
-		if self.__ng3:
-			z = mpc(0,1) * z
-		if Delta > 0:
-			tau = omp / om
-			# NOTE: here q has to be real.
-			q = (exp(mpc(0,1) * pi() * tau)).real
-			eta = -(pi()**2 * jtheta(n=1,z=0,q=q,derivative=3)) / (12 * om * jtheta(n=1,z=0,q=q,derivative=1))
-			v = (pi() * z) / (2 * om)
-			retval = (eta * z) / om + (pi() * jtheta(n=1,z=v,q=q,derivative=1)) / (2 * om * jtheta(n=1,z=v,q=q))
-		elif Delta < 0:
-			om2 = om + omp
-			om2p = omp - om
-			tau2 = om2p / (2 * om2)
-			# NOTE: here q will be pure imaginary.
-			q = mpc(0,(mpc(0,1) * exp(mpc(0,1) * pi() * tau2)).imag)
-			eta2 = -(pi()**2 * jtheta(n=1,z=0,q=q,derivative=3)) / (12 * om2 * jtheta(n=1,z=0,q=q,derivative=1))
-			v = (pi() * z) / (2 * om2)
-			retval = (eta2 * z) / om2 + (pi() * jtheta(n=1,z=v,q=q,derivative=1)) / (2 * om2 * jtheta(n=1,z=v,q=q))
-		else:
-			g2, g3 = self.__invariants
-			if g2 == 0 and g3 == 0:
-				retval = 1 / z
-			else:
-				c = e1 / 2
-				A = sqrt(3 * c)
-				retval = c*z + A * cot(A*z)
-		if self.__ng3:
-			return mpc(0,1) * retval
-		else:
-			return retval
-	def sigma(self,z):
-		# A+S 18.10.
-		from mpmath import pi, jtheta, exp, mpc, sqrt, sin
-		Delta = self.Delta
-		e1, _, _ = self.__roots
-		om = self.__periods[0] / 2
-		omp = self.__periods[1] / 2
-		if self.__ng3:
-			z = mpc(0,1) * z
-		if Delta > 0:
-			tau = omp / om
-			q = (exp(mpc(0,1) * pi() * tau)).real
-			eta = -(pi()**2 * jtheta(n=1,z=0,q=q,derivative=3)) / (12 * om * jtheta(n=1,z=0,q=q,derivative=1))
-			v = (pi() * z) / (2 * om)
-			retval = (2 * om) / pi() * exp((eta * z**2)/(2 * om)) * jtheta(n=1,z=v,q=q)/jtheta(n=1,z=0,q=q,derivative=1)
-		elif Delta < 0:
-			om2 = om + omp
-			om2p = omp - om
-			tau2 = om2p / (2 * om2)
-			q = mpc(0,(mpc(0,1) * exp(mpc(0,1) * pi() * tau2)).imag)
-			eta2 = -(pi()**2 * jtheta(n=1,z=0,q=q,derivative=3)) / (12 * om2 * jtheta(n=1,z=0,q=q,derivative=1))
-			v = (pi() * z) / (2 * om2)
-			retval = (2 * om2) / pi() * exp((eta2 * z**2)/(2 * om2)) * jtheta(n=1,z=v,q=q)/jtheta(n=1,z=0,q=q,derivative=1)
-		else:
-			g2, g3 = self.__invariants
-			if g2 == 0 and g3 == 0:
-				retval = z
-			else:
-				c = e1 / 2
-				A = sqrt(3 * c)
-				retval = (1 / A) * sin(A*z) * exp((c*z**2) / 2)
-		if self.__ng3:
-			return mpc(0,-1) * retval
-		else:
-			return retval
+			# 2.2.1 - We reduce the study of the sign to the fundamental rectangle 
+			# using formulas 18.2.22 - 18.2.33 from Abramowitz
+			x = z_r.real
+			y = z_r.imag
+			if (x<=self.__om2.real and y>=0.0): 		#R1
+				Pprime_r =  Pprime
+				txt = 'R1'
+			elif (x<=self.__om2.real and y<0.0): 		#R2
+				z_r = z_r.conjugate()
+				Pprime_r = Pprime.conjugate()
+				txt = 'R2'
+			elif (x>self.__om2.real and y<=0.0): 		#R3
+				z_r = 2*self.__om2 - z_r
+				Pprime_r = - Pprime
+				txt = 'R3'
+			else: 						#R4
+				z_r = (2*self.__om2 - z_r).conjugate()
+				Pprime_r = - Pprime.conjugate()
+				txt = 'R4'
+
+			# 2.2.2 - We then apply Abramowitz criteria by first reducing to the case
+			# where the real half-period is unity
+			z_r = z_r/self.__om2
+			if (z_r.imag > self.__om2p.imag / 2.0):	#We move from 1/4 FPP to fundamental rectangle
+				z_r = 2*self.__omp - z_r
+				Pprime_r = -Pprime_r
+				txt = txt + ' - FR'
+			# and by then applying the criterion
+			a = self.__om2p.imag/self.__om2.real
+			x = z_r.real
+			y = z_r.imag
+
+			if (y<=0.4 and x<=0.4): 				#region B
+				zmac = -2.0/z_r/z_r/z_r
+				flag = (sign(zmac.real)==sign(Pprime_r.real))
+				txt = txt + ' - Region B'
+			elif a>=1.05:
+				if (y>=0.4 and x<=0.5): 			#as region A of Delta>0
+					flag = (Pprime_r.real >= 0)
+				else: 		
+					flag = (Pprime_r.imag >= 0)
+				txt = txt + ' - Region A D>0'
+			else:							
+				if(y>=0.4 and x<=0.4):
+					flag = (Pprime_r.real >= 0)
+					txt = txt + ' - case 1'
+				elif (x >0.4 and x <=0.5 and y >0.4 and y <=0.5):
+					arg = phase(Pprime_r)
+					flag = (arg > -pi/4 and arg < 3.0/4.0*pi)
+					txt = txt + ' - case 2 (arg)'
+				else:
+					flag = (Pprime_r.imag >= 0)
+					txt = txt + ' - case 3 (elsewhere)'
+			if not flag:
+				Pprime = -Pprime
+		print txt
+		return Pprime
+	
+	
+
+	def zeta(self,z,N):
+		z0 = z #TODO riportare al quadrante
+		g2, g3 = self.__invariants
+		c2 = g2/20.0
+		c3 = g3/28.0
+		for i in range(N):
+			z0 = z0/2.0
+		P =       1.0/z0/z0    +   c2*z0*z0 +     c3*z0*z0*z0*z0
+		Pp = -2.0/z0/z0/z0 + 2*c2*z0    + 4.0*c3*z0*z0*z0
+		zeta = 1/z0 - c2*z0*z0*z0/3.0-c3*z0*z0*z0*z0*z0/5.0
+		for j in range(N):
+			Ppp = 6*P*P-g2/2.0
+			zeta = 2.0*zeta + Ppp / 2.0 / Pp
+			Pp = (-4.0*Pp*Pp*Pp*Pp + 12.0 * P*Pp*Pp*Ppp-Ppp*Ppp*Ppp)/(4.0*Pp*Pp*Pp)
+			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P*P-1.0/2.0*g2)/(4.0*(4.0*P*P*P-g2*P-g3))
+		return zeta
+
+
+	def sigma(self,z,N):
+		z0 = self.reduce_to_fpp2(z)
+		g2, g3 = self.__user_invariants
+		c2 = g2/20.0
+		c3 = g3/28.0
+		for i in range(N):
+			z0 = z0/2.0
+		P = 1.0/z0/z0 + c2*z0*z0 + c3*z0*z0*z0*z0
+		Pp = self.__Pprime_from_P(z,P)
+		sigma = z0 - g2/240.0*z0*z0*z0*z0*z0 - g3/840.0*z0*z0*z0*z0*z0*z0*z0
+		for j in range(N):
+			Ppp = 6*P*P-g2/2.0
+			sigma = - sigma*sigma*sigma*sigma*Pp
+			Pp = (-4.0*Pp*Pp*Pp*Pp + 12.0 * P*Pp*Pp*Ppp-Ppp*Ppp*Ppp)/(4.0*Pp*Pp*Pp)
+			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P*P-1.0/2.0*g2)/(4.0*(4.0*P*P*P-g2*P-g3))
+		return sigma
+
 	def Pinv(self,P):
 		from mpmath import ellipf, sqrt, asin, acos, mpc, mpf
 		Delta = self.Delta
@@ -299,10 +416,57 @@ class weierstrass_elliptic(object):
 		alpha, beta, _, _ = self.reduce_to_fpp(retval)
 		T1, T2 = self.periods
 		return T1 * alpha + T2 * beta
+
+	def reduce_to_fpp2(self,z):
+		from math import floor
+		T1, T2 = self.__user_periods
+		a, b = T1.real, T2.real
+		d, c = T1.imag, T2.imag
+		assert(d == 0)
+		b1,b2 = z.real,z.imag
+		x2 = b2 / c
+		x1 = (b1 - b*x2) / a
+		N = int(floor(x1))
+		M = int(floor(x2))
+		alpha = x1 - N
+		beta = x2 - M
+		assert(alpha >= 0 and beta >= 0)
+		retval =  alpha*T1+beta*T2
+		if self.Delta > 0:
+			return retval
+		else:
+			if retval.real < self.__om2.real:
+				return retval
+			if retval.real > 2*self.__om2.real:
+				return retval-2*self.__omp
+			zz = retval-2*self.__omp
+			if zz.imag/zz.real >= self.__om.imag/self.__om.real:
+				return zz
+			else:
+				return retval
+	def reduce_to_fpp3(self,z):
+		from math import floor
+		T1, T2 = self.__user_periods
+		a, b = T1.real, T2.real
+		d, c = T1.imag, T2.imag
+		assert(d == 0)
+		b1,b2 = z.real,z.imag
+		x2 = b2 / c
+		x1 = (b1 - b*x2) / a
+		N = int(floor(x1))
+		M = int(floor(x2))
+		alpha = x1 - N
+		beta = x2 - M
+		assert(alpha >= 0 and beta >= 0)
+		return  alpha*T1+beta*T2
+
+				
+				
+
 	def reduce_to_fpp(self,z):
 		# TODO: need to check what happens here when periods are infinite.
 		from mpmath import floor, matrix, lu_solve
-		T1, T2 = self.periods
+		T1, T2 = self.__user_periods
 		R1, R2 = T1.real, T2.real
 		I1, I2 = T1.imag, T2.imag
 		A = matrix([[R1,R2],[I1,I2]])
@@ -314,3 +478,13 @@ class weierstrass_elliptic(object):
 		beta = x[1] - M
 		assert(alpha >= 0 and beta >= 0)
 		return alpha,beta,N,M
+
+	def plot_infpp(self,z):
+		import matplotlib.pyplot as pl
+		pl.plot(2* self.__om.real,2* self.__om.imag,'ok')
+		pl.plot(2* self.__omp.real,2*self.__omp.imag,'ok')
+		pl.plot(2* self.__om2.real,2*self.__om2.imag,'ok')
+		pl.plot(z.real,z.imag,'or')
+		pl.plot(0,0,'ok')
+
+		pl.show()
