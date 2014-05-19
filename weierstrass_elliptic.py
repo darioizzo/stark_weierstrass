@@ -33,12 +33,13 @@ class weierstrass_elliptic(object):
 		# Upon construction we compute/store the discriminant, the roots, the periods and more
 		self.__Delta = 4 * 4 * g2*g2*g2 - 27 * 4*4 * g3*g3
 		self.__invariants = (g2,g3)
-		self.__user_invariants = self.__compute_user_invariants()
-		self.__roots = self.__cubic_roots()
+		#self.__user_invariants = self.__compute_user_invariants()
+		self.__roots = self.__compute_roots()
+		self.__omegas = self.__compute_omegas()
 		self.__periods = self.__compute_periods()
-		self.__user_periods = self.__compute_user_periods()
+		#self.__user_periods = self.__compute_user_periods()
 
-	def __cubic_roots(self):
+	def __compute_roots(self):
 		from mpmath import  sqrt
 		from mpmath import mpf, polyroots
 		p = - self.__invariants[0] / 4.0
@@ -68,7 +69,7 @@ class weierstrass_elliptic(object):
 			e1,e2,e3 = sorted([e1,e2,e3], key = lambda x: x.imag, reverse = True)
 		return e1,e2,e3
 
-	def __compute_periods(self):
+	def __compute_omegas(self):
 		# A+S 18.9.
 		from mpmath import sqrt, ellipk, mpc, pi, mpf
 		Delta = self.Delta
@@ -79,10 +80,8 @@ class weierstrass_elliptic(object):
 			Kpm = ellipk(1 - m)
 			om = Km / sqrt(e1 - e3)
 			omp = mpc(0,1) * om * Kpm / Km
-			self.__om = om
-			self.__omp = omp
-			self.__om2 = self.__om + self.__omp
-			self.__om2p = self.__omp - self.__om
+			om2 = om + omp
+			om2p = omp - om
 		elif Delta < 0:
 			# NOTE: the expression in the sqrt has to be real and positive, as e1 and e3 are
 			# complex conjugate and e2 is real.
@@ -95,10 +94,6 @@ class weierstrass_elliptic(object):
 			om2p = mpc(0,1) * Kpm * om2 / Km
 			om = (om2 - om2p) / 2
 			omp = (om2 + om2p) / 2
-			self.__om2p = om2p
-			self.__om2 = om2
-			self.__om = om
-			self.__omp = omp
 		else:
 			g2, g3 = self.__invariants
 			if g2 == 0 and g3 == 0:
@@ -112,9 +107,17 @@ class weierstrass_elliptic(object):
 				omp = mpc(0,'+inf')
 			self.__om = om
 			self.__omp = omp
-			self.__om2 = self.__om + self.__omp
-			self.__om2p = self.__omp - self.__om
-		return 2 * om, 2 * omp
+			om2 = om + omp
+			om2p = omp - om
+		return om,omp,om2,om2p
+
+	def __compute_periods(self):
+		om,omp,om2,om2p = self.__omegas
+		if self.Delta >= 0:
+			return 2 * om, 2 * omp
+		else:
+			return 2 *(om + omp), 2 * omp
+
 	def __compute_user_periods(self):
 		from mpmath import mpc
 		Delta = self.Delta
@@ -187,34 +190,35 @@ class weierstrass_elliptic(object):
 
 		x = z_r.real
 		y = z_r.imag
+		om,omp,om2,om2p = self.__omegas
 		
 		if self.Delta >= 0:
-			if (x>=self.__om and y>=self.__omp.imag): 	#R3
+			if (x>=om and y>=omp.imag): 	#R3
 				z_r = 2.0*self.__om2-z_r
-			elif (x>self.__om): 				#R4
-				z_r = (2.0*self.__om-z_r).conjugate()
-			elif (y>self.__omp.imag): 			#R2
-				z_r = (z_r-2.0*self.__omp).conjugate()
+			elif (x>som): 				#R4
+				z_r = (2.0*om-z_r).conjugate()
+			elif (y>omp.imag): 			#R2
+				z_r = (z_r-2.0*omp).conjugate()
 			else: 						#R1
 				z_r = z_r
 		else:
-			if (y>=0 and x<=self.__om2.real):		#R1
+			if (y>=0 and x<=om2.real):		#R1
 				z_r = z_r
-			if (y>=0 and x>self.__om2.real):		#R2
+			if (y>=0 and x>om2.real):		#R2
 				z_r = z_r.conjugate()
-			if (y<=0 and x<=self.__om2.real):		#R3
-				z_r = 2.0*self.__om-z_r
-			if (y<=0 and x<=self.__om2.real):		#R4
-				z_r = (2.0*self.__om-z_r).conjugate()
+			if (y<=0 and x<=om2.real):		#R3
+				z_r = 2.0*om-z_r
+			if (y<=0 and x<=om2.real):		#R4
+				z_r = (2.0*om-z_r).conjugate()
 		
-			if z_r.imag > self.__om2p.imag / 2.0:		
-				z_r = 2*self.__omp - z_r
+			if z_r.imag > om2p.imag / 2.0:		
+				z_r = 2*omp - z_r
 		
 		# 3 - We half z_r N times
 		for i in range(N):
 			z_r = z_r/2.0
 		# 4 - we now compute the Laurent series to the 9th term in the N-halved z_r
-		g2, g3 = self.__user_invariants
+		g2, g3 = self.__invariants
 		c2 = g2/20.0
 		c3 = g3/28.0
 		c23 = c2*c2*c2
@@ -238,22 +242,22 @@ class weierstrass_elliptic(object):
 
 		# 6 - We return the appropriate value for P (according to the 1/4 FPP reduction formulas)
 		if self.Delta >=0:
-			if (x>self.__om.real and y>self.__omp.imag): 	#R3
+			if (x>om.real and y>omp.imag): 	#R3
 				return P
-			elif (x>self.__om.real): 			#R4
+			elif (x>om.real): 			#R4
 				return P.conjugate()
-			elif (y>self.__omp.imag): 			#R2
+			elif (y>omp.imag): 			#R2
 				return P.conjugate()
 			else: 						#R1
 				return P
 		else:
-			if (y>=0 and x<=self.__om2.real):		#R1
+			if (y>=0 and x<=om2.real):		#R1
 				return P
-			if (y<0 and x <= self.__om2.real):		#R2
+			if (y<0 and x <= om2.real):		#R2
 				return P.conjugate()
-			if (y<=0 and x>self.__om2.real):		#R3
+			if (y<=0 and x>om2.real):		#R3
 				return P
-			if (y>0 and x>self.__om2.real):			#R4
+			if (y>0 and x>om2.real):			#R4
 				return P.conjugate()
 		
 	def Pprime(self,z):
@@ -266,21 +270,20 @@ class weierstrass_elliptic(object):
 		from mpmath import sqrt,sign,phase,pi
 		txt = ''
 		# 1 - We start by computing Pprime without knowing its sign
-		g2, g3 = self.__user_invariants
+		g2, g3 = self.__invariants
 		Pprime = sqrt(4*P*P*P - g2*P - g3)
 
 		# 2 - We now resolve the sign ambiguity using the method in (Abramowitz 18.8)
 		# 2.1 - First we reduce to studying the behaviour in the fundamental parallelogram
 		z_r = self.reduce_to_fpp2(z)
 
-		
+		om,omp,om2,om2p = self.__omegas
 		if g3<0: #DOES NOT WORK .... REDUCTION TO FPP PROBABLY FAILED
 			Pprime_r = Pprime*1j
 			z_r = z_r*1j
-			om,omp,om2,om2p = -1j*self.__omp, 1j*self.__om,-1j*self.__om2p,1j*self.__om2
+			om,omp,om2,om2p = -1j*omp, 1j*om,-1j*om2p,1j*om2
 		else:
 			Pprime_r = Pprime
-			om,omp,om2,om2p = self.__om, self.__omp,self.__om2,self.__om2p
 
 
 		# 2.2 - We then proceed separately according to the sign of Delta
@@ -409,7 +412,7 @@ class weierstrass_elliptic(object):
 
 	def reduce_to_fpp2(self,z):
 		from math import floor
-		T1, T2 = self.__user_periods
+		T1, T2 = self.__periods
 		a, b = T1.real, T2.real
 		d, c = T1.imag, T2.imag
 		assert(d == 0)
@@ -425,18 +428,19 @@ class weierstrass_elliptic(object):
 		if self.Delta > 0:
 			return retval
 		else:
-			if retval.real < self.__om2.real:
+			om,omp,om2,om2p = self.__omegas
+			if retval.real < om2.real:
 				return retval
-			if retval.real > 2*self.__om2.real:
-				return retval-2*self.__omp
-			zz = retval-2*self.__omp
-			if zz.imag/zz.real >= self.__om.imag/self.__om.real:
+			if retval.real > 2*om2.real:
+				return retval-2*omp
+			zz = retval-2*omp
+			if zz.imag/zz.real >= om.imag/om.real:
 				return zz
 			else:
 				return retval
 	def reduce_to_fpp3(self,z):
 		from math import floor
-		T1, T2 = self.__user_periods
+		T1, T2 = self.__periods
 		a, b = T1.real, T2.real
 		d, c = T1.imag, T2.imag
 		assert(d == 0)
@@ -456,7 +460,7 @@ class weierstrass_elliptic(object):
 	def reduce_to_fpp(self,z):
 		# TODO: need to check what happens here when periods are infinite.
 		from mpmath import floor, matrix, lu_solve
-		T1, T2 = self.__user_periods
+		T1, T2 = self.__periods
 		R1, R2 = T1.real, T2.real
 		I1, I2 = T1.imag, T2.imag
 		A = matrix([[R1,R2],[I1,I2]])
@@ -471,9 +475,10 @@ class weierstrass_elliptic(object):
 
 	def plot_infpp(self,z):
 		import matplotlib.pyplot as pl
-		pl.plot(2* self.__om.real,2* self.__om.imag,'ok')
-		pl.plot(2* self.__omp.real,2*self.__omp.imag,'ok')
-		pl.plot(2* self.__om2.real,2*self.__om2.imag,'ok')
+		om,omp,om2,om2p = self.__omegas
+		pl.plot(2* om.real,2* om.imag,'ok')
+		pl.plot(2* omp.real,2*omp.imag,'ok')
+		pl.plot(2* om2.real,2*om2.imag,'ok')
 		pl.plot(z.real,z.imag,'or')
 		pl.plot(0,0,'ok')
 
