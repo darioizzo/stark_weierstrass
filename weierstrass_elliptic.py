@@ -1,6 +1,6 @@
 # -*- coding: iso-8859-1 -*-
-# Copyright (C) 2013 by Francesco Biscani
-# bluescarni@gmail.com
+# Copyright (C) 2014 by Dario Izzo
+# dario.izzo@gmail.com
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@ class weierstrass_elliptic(object):
 	def __init__(self,g2,g3):
 		from mpmath import mpf
 		g2 = mpf(g2)
-		# Handle negative g3.
+		#Handle negative g3.
 		#if g3 < 0:
 		#	g3 = -mpf(g3)
 		#	self.__ng3 = True
@@ -40,20 +40,28 @@ class weierstrass_elliptic(object):
 
 	def __cubic_roots(self):
 		from mpmath import  sqrt
-		g2 = self.__invariants[0]
-		g3 = self.__invariants[1]
-		Delta = g3*g3 - 1.0/27.0 * g2**3.0
-		alpha = sqrt(1.0/12.0*g2)
-		beta = (g3+sqrt(Delta))**(1.0/3.0) / 2.0 / alpha
-		gamma = 1.0 / beta
-		cos23pi = -0.5
-		sin23pi = 0.8660254037844387
+		from mpmath import mpf, polyroots
+		p = - self.__invariants[0] / 4.0
+		q = - self.__invariants[1] / 4.0
+		u1=1.0
+		u2=(-1.0+sqrt(3)*1j)/2.0
+		u3=(-1.0-sqrt(3)*1j)/2.0
+		Delta0 = -3.0*p
+		Delta1 = 27.0*q
+			
+		C1 = ((Delta1+sqrt(Delta1**2.0-4.0*Delta0**3.0))/2.0 +0j)**(1.0/3.0)
+		C2 = ((Delta1-sqrt(Delta1**2.0-4.0*Delta0**3.0))/2.0 +0j)**(1.0/3.0)
+	
+		#This avoids loosing numerical precision when C->0
+		if abs(C1)>abs(C2):
+			C=C1
+		else:
+			C=C2
 
-		e1 = alpha*(beta+gamma)
-		e2 = (cos23pi+sin23pi*1j)*beta + (cos23pi-sin23pi*1j)*gamma 
-		e2 = e2*alpha
-		e3 = (cos23pi-sin23pi*1j)*beta + (cos23pi+sin23pi*1j)*gamma 
-		e3 = -e1-e2
+		e1 = -1.0/3.0*(u1*C+Delta0/u1/C)
+		e2 = -1.0/3.0*(u2*C+Delta0/u2/C)
+		e3 = -1.0/3.0*(u3*C+Delta0/u3/C)
+
 		if self.__Delta > 0:
 			e1,e2,e3 = sorted([e1.real,e2.real,e3.real], reverse = True)
 		else:
@@ -169,14 +177,14 @@ class weierstrass_elliptic(object):
 		# 0 - Number of iterations is fixed
 		# this could be adapted together with the number of terms retained
 		# in the Laurent series to increase performance .. but how?		
-		N = 0
+		N = 4
 
-		# 1 - we reduce to the fundamental period parallelogram
+		# 1 - we reduce to the fundamental period parallelogram (the one in Abramowitz)
 		z_r = self.reduce_to_fpp2(z)
 
-		# 2 - we reduce z_r to 1/4 FPP to further reduce the error of the iterations
-		# NOTE: i tried to reduce to the fundamental rectangle too, 
-		# but could not get the 18.2.34 from Abra to work :(	
+		# 2 - we reduce z_r first to 1/4 FPP to further reduce the error of the iterations
+		# and then to the fundamental rectangle
+
 		x = z_r.real
 		y = z_r.imag
 		
@@ -199,10 +207,13 @@ class weierstrass_elliptic(object):
 			if (y<=0 and x<=self.__om2.real):		#R4
 				z_r = (2.0*self.__om-z_r).conjugate()
 		
+			if z_r.imag > self.__om2p.imag / 2.0:		
+				z_r = 2*self.__omp - z_r
+		
 		# 3 - We half z_r N times
 		for i in range(N):
 			z_r = z_r/2.0
-		# 4 - we now compute the Laurent series to the 7th term in the N-halved z_r
+		# 4 - we now compute the Laurent series to the 9th term in the N-halved z_r
 		g2, g3 = self.__user_invariants
 		c2 = g2/20.0
 		c3 = g3/28.0
@@ -218,9 +229,8 @@ class weierstrass_elliptic(object):
 		z04=z02*z02
 		z06=z04*z02
 		z08=z04*z04
-		print 1.0/z02, c2*z02 ,c3*z04,c4*z04*z02,c5*z04*z04,c6*z06*z04,c7*z06*z06+c8*z08*z06,c9*z08*z08
-		P = 1.0/z02 + c2*z02 +c3*z04+c4*z04*z02+c5*z04*z04+c6*z06*z04+c7*z06*z06+c8*z08*z06+c9*z08*z08
-		print z_r
+		P = 1.0/z02 + c2*z02 + c3*z04 + c4*z04*z02 + c5*z04*z04 + c6*z06*z04 + c7*z06*z06 + c8*z08*z06 + c9*z08*z08
+
 		# 5 - We apply the duplication formula N times
 		for j in range(N):
 			P2 = P*P
@@ -254,7 +264,7 @@ class weierstrass_elliptic(object):
 
 	def __Pprime_from_P(self,z,P):
 		from mpmath import sqrt,sign,phase,pi
-
+		txt = ''
 		# 1 - We start by computing Pprime without knowing its sign
 		g2, g3 = self.__user_invariants
 		Pprime = sqrt(4*P*P*P - g2*P - g3)
@@ -263,26 +273,36 @@ class weierstrass_elliptic(object):
 		# 2.1 - First we reduce to studying the behaviour in the fundamental parallelogram
 		z_r = self.reduce_to_fpp2(z)
 
+		
+		if g3<0: #DOES NOT WORK .... REDUCTION TO FPP PROBABLY FAILED
+			Pprime_r = Pprime*1j
+			z_r = z_r*1j
+			om,omp,om2,om2p = -1j*self.__omp, 1j*self.__om,-1j*self.__om2p,1j*self.__om2
+		else:
+			Pprime_r = Pprime
+			om,omp,om2,om2p = self.__om, self.__omp,self.__om2,self.__om2p
+
+
 		# 2.2 - We then proceed separately according to the sign of Delta
 		if self.Delta > 0:
 			# 2.2.1 - We reduce the study of the sign to the fundamental rectangle (in this case 1/4 FPP)
 			x = z_r.real
 			y = z_r.imag
-			if (x>self.__om.real and y>self.__omp.imag): 	#R3
-				z_r = 2*self.__om2-z_r
+			if (x>om.real and y>omp.imag): 			#R3
+				z_r = 2*om2-z_r
 				Pprime_r =  - Pprime
-			elif (x>self.__om.real): 			#R4
-				z_r = (2*self.__om-z_r).conjugate()
+			elif (x>om.real): 				#R4
+				z_r = (2*om-z_r).conjugate()
 				Pprime_r = -Pprime.conjugate()
-			elif (y>self.__omp.imag): 			#R2
-				z_r = (z_r-2*self.__omp).conjugate()
+			elif (y>omp.imag): 				#R2
+				z_r = (z_r-2*omp).conjugate()
 				Pprime_r = Pprime.conjugate()
 			else: 						#R1
 				Pprime_r = Pprime
 
 			# 2.2.2 - We apply Abramowitz criteria
-			z_r = z_r/self.__om
-			a = self.__omp.imag/self.__om.real
+			z_r = z_r/om
+			a = omp.imag/om.real
 			x = z_r.real
 			y = z_r.imag
 			if (y<=0.4 and x<=0.4): 				#region B
@@ -299,31 +319,33 @@ class weierstrass_elliptic(object):
 			# using formulas 18.2.22 - 18.2.33 from Abramowitz
 			x = z_r.real
 			y = z_r.imag
-			if (x<=self.__om2.real and y>=0.0): 		#R1
+			if (x<=om2.real and y>=0.0): 		#R1
 				Pprime_r =  Pprime
 				txt = 'R1'
-			elif (x<=self.__om2.real and y<0.0): 		#R2
+			elif (x<=om2.real and y<0.0): 		#R2
 				z_r = z_r.conjugate()
 				Pprime_r = Pprime.conjugate()
 				txt = 'R2'
-			elif (x>self.__om2.real and y<=0.0): 		#R3
-				z_r = 2*self.__om2 - z_r
+			elif (x>om2.real and y<=0.0): 		#R3
+				z_r = 2*om2 - z_r
 				Pprime_r = - Pprime
 				txt = 'R3'
-			else: 						#R4
-				z_r = (2*self.__om2 - z_r).conjugate()
+			else: 					#R4
+				z_r = (2*om2 - z_r).conjugate()
 				Pprime_r = - Pprime.conjugate()
 				txt = 'R4'
+			if z_r.imag > om2p.imag / 2.0:		#We move from 1/4 FPP to fundamental rectangle	
+				z_r = 2*omp - z_r
+				Pprime_r = -Pprime_r
+				txt = txt + ' - FR'
+			
 
 			# 2.2.2 - We then apply Abramowitz criteria by first reducing to the case
 			# where the real half-period is unity
-			z_r = z_r/self.__om2
-			if (z_r.imag > self.__om2p.imag / 2.0):	#We move from 1/4 FPP to fundamental rectangle
-				z_r = 2*self.__omp - z_r
-				Pprime_r = -Pprime_r
-				txt = txt + ' - FR'
+			z_r = z_r/om2
+			
 			# and by then applying the criterion
-			a = self.__om2p.imag/self.__om2.real
+			a = om2p.imag/om2.real
 			x = z_r.real
 			y = z_r.imag
 
@@ -334,10 +356,12 @@ class weierstrass_elliptic(object):
 			elif a>=1.05:
 				if (y>=0.4 and x<=0.5): 			#as region A of Delta>0
 					flag = (Pprime_r.real >= 0)
+					txt = txt + ' - Region A real'				
 				else: 		
 					flag = (Pprime_r.imag >= 0)
-				txt = txt + ' - Region A D>0'
-			else:							
+					txt = txt + ' - Region A imag'
+				
+			elif a>1:							
 				if(y>=0.4 and x<=0.4):
 					flag = (Pprime_r.real >= 0)
 					txt = txt + ' - case 1'
@@ -348,48 +372,14 @@ class weierstrass_elliptic(object):
 				else:
 					flag = (Pprime_r.imag >= 0)
 					txt = txt + ' - case 3 (elsewhere)'
+			else:
+				print "BOH"			
+
 			if not flag:
 				Pprime = -Pprime
 		print txt
 		return Pprime
 	
-	
-
-	def zeta(self,z,N):
-		z0 = z #TODO riportare al quadrante
-		g2, g3 = self.__invariants
-		c2 = g2/20.0
-		c3 = g3/28.0
-		for i in range(N):
-			z0 = z0/2.0
-		P =       1.0/z0/z0    +   c2*z0*z0 +     c3*z0*z0*z0*z0
-		Pp = -2.0/z0/z0/z0 + 2*c2*z0    + 4.0*c3*z0*z0*z0
-		zeta = 1/z0 - c2*z0*z0*z0/3.0-c3*z0*z0*z0*z0*z0/5.0
-		for j in range(N):
-			Ppp = 6*P*P-g2/2.0
-			zeta = 2.0*zeta + Ppp / 2.0 / Pp
-			Pp = (-4.0*Pp*Pp*Pp*Pp + 12.0 * P*Pp*Pp*Ppp-Ppp*Ppp*Ppp)/(4.0*Pp*Pp*Pp)
-			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P*P-1.0/2.0*g2)/(4.0*(4.0*P*P*P-g2*P-g3))
-		return zeta
-
-
-	def sigma(self,z,N):
-		z0 = self.reduce_to_fpp2(z)
-		g2, g3 = self.__user_invariants
-		c2 = g2/20.0
-		c3 = g3/28.0
-		for i in range(N):
-			z0 = z0/2.0
-		P = 1.0/z0/z0 + c2*z0*z0 + c3*z0*z0*z0*z0
-		Pp = self.__Pprime_from_P(z,P)
-		sigma = z0 - g2/240.0*z0*z0*z0*z0*z0 - g3/840.0*z0*z0*z0*z0*z0*z0*z0
-		for j in range(N):
-			Ppp = 6*P*P-g2/2.0
-			sigma = - sigma*sigma*sigma*sigma*Pp
-			Pp = (-4.0*Pp*Pp*Pp*Pp + 12.0 * P*Pp*Pp*Ppp-Ppp*Ppp*Ppp)/(4.0*Pp*Pp*Pp)
-			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P*P-1.0/2.0*g2)/(4.0*(4.0*P*P*P-g2*P-g3))
-		return sigma
-
 	def Pinv(self,P):
 		from mpmath import ellipf, sqrt, asin, acos, mpc, mpf
 		Delta = self.Delta

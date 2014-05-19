@@ -17,17 +17,16 @@ while flag:
 		flag = False
 
 sol=list()
-nn = 1
-g2,g3 = 0.00114640883045, -0.294460277819
+nn = 100
 wpOLD = weOLD.weierstrass_elliptic(g2,g3)
-wp = we.weierstrass_elliptic(g2,g3)
-z =  mpc(real='6.2799995306229794', imag='5.201543383152698')
+print "g2: " + str(g2) + ", g3: " + str(g3)
+
 for i in range(nn):
-	z =  mpc(real='6.2799995306229794', imag='5.201543383152698')
-	#a = wp.Pprime(z)
-	#b = wpOLD.Pprime(z)
-	a = wp.P(z)
-	b = wpOLD.P(z)
+	z = mpc(10 - rand()*20,10 - rand()*20)
+	a = wp.Pprime(z)
+	b = wpOLD.Pprime(z)
+	#a = wp.P(z)
+	#b = wpOLD.P(z)
 	err = a-b
 	err = sqrt((err*err.conjugate()).real).real
 	print err
