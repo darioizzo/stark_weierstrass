@@ -23,10 +23,10 @@ print "g2: " + str(g2) + ", g3: " + str(g3)
 
 for i in range(nn):
 	z = mpc(10 - rand()*20,10 - rand()*20)
-	#a = wp.Pprime(z)
-	#b = wpOLD.Pprime(z)
-	a = wp.P(z)
-	b = wpOLD.P(z)
+	a = wp.Pprime(z)
+	b = wpOLD.Pprime(z)
+	#a = wp.P(z)
+	#b = wpOLD.P(z)
 	err = a-b
 	err = sqrt((err*err.conjugate()).real).real
 	print err

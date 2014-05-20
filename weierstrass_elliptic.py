@@ -183,7 +183,8 @@ class weierstrass_elliptic(object):
 		N = 4
 
 		# 1 - we reduce to the fundamental period parallelogram (the one in Abramowitz)
-		z_r = self.reduce_to_fpp2(z)
+		T1,T2 = self.__periods
+		z_r = self.reduce_to_fpp2(z,T1,T2)
 
 		# 2 - we reduce z_r first to 1/4 FPP to further reduce the error of the iterations
 		# and then to the fundamental rectangle
@@ -275,14 +276,21 @@ class weierstrass_elliptic(object):
 
 		# 2 - We now resolve the sign ambiguity using the method in (Abramowitz 18.8)
 		# 2.1 - First we reduce to studying the behaviour in the fundamental parallelogram
-		z_r = self.reduce_to_fpp2(z)
-
+	
 		om,omp,om2,om2p = self.__omegas
 		if g3<0: #DOES NOT WORK .... REDUCTION TO FPP PROBABLY FAILED
 			Pprime_r = Pprime*1j
-			z_r = z_r*1j
+			z_r = z*1j
 			om,omp,om2,om2p = -1j*omp, 1j*om,-1j*om2p,1j*om2
+			if self.Delta >= 0:
+				T1,T2 = 2 * om, 2 * omp
+			else:
+				T1,T2 = 2 *(om + omp), 2 * omp
+			z_r = self.reduce_to_fpp2(z_r,T1,T2)
 		else:
+			z_r = z
+			T1,T2 = self.__periods
+			z_r = self.reduce_to_fpp2(z_r,T1,T2)
 			Pprime_r = Pprime
 
 
@@ -410,9 +418,8 @@ class weierstrass_elliptic(object):
 		T1, T2 = self.periods
 		return T1 * alpha + T2 * beta
 
-	def reduce_to_fpp2(self,z):
+	def reduce_to_fpp2(self,z,T1,T2):
 		from math import floor
-		T1, T2 = self.__periods
 		a, b = T1.real, T2.real
 		d, c = T1.imag, T2.imag
 		assert(d == 0)
