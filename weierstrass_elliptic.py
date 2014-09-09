@@ -23,22 +23,13 @@ class weierstrass_elliptic(object):
 		from mpmath import mpf
 		g2 = mpf(g2)
 		g3 = mpf(g3)
-		#Handle negative g3.
-		#if g3 < 0:
-		#	g3 = -mpf(g3)
-		#	self.__ng3 = True
-		#else:
-		#	g3 = mpf(g3)
+
 		self.__ng3 = False
-		#assert(g3 >= 0)
-		# Upon construction we compute/store the discriminant, the roots, the periods and more
 		self.__Delta = 4 * 4 * g2*g2*g2 - 27 * 4*4 * g3*g3
 		self.__invariants = (g2,g3)
-		#self.__user_invariants = self.__compute_user_invariants()
 		self.__roots = self.__compute_roots(mpf('4.0'),-g2,-g3)
 		self.__omegas = self.__compute_omegas()
 		self.__periods = self.__compute_periods()
-		#self.__user_periods = self.__compute_user_periods()
 
 	def __compute_roots(self,a,c,d):
 		from mpmath import mpf, mpc, sqrt, cbrt
