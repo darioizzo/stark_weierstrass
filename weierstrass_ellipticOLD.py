@@ -1,5 +1,5 @@
 # -*- coding: iso-8859-1 -*-
-# Copyright (C) 2013 by Francesco Biscani
+# Copyright (C) 2014 by Francesco Biscani
 # bluescarni@gmail.com
 #
 # This program is free software; you can redistribute it and/or modify
@@ -22,20 +22,29 @@ class weierstrass_elliptic(object):
 	# - for testing, use results from Wolfram alpha with all possible branches (Delta positive and negative, g3 positive and negative)
 	#   and both real and complex arguments.
 	def __cubic_roots(self,a,c,d):
-		from mpmath import mpf, polyroots
+		from mpmath import mpf, mpc, sqrt, cbrt
 		assert(all([isinstance(_,mpf) for _ in [a,c,d]]))
 		Delta = -4 * a * c*c*c - 27 * a*a * d*d
 		self.__Delta = Delta
-		# NOTE: replace with exact calculation of cubic roots.
-		proots, err = polyroots([a,0,c,d],error=True,maxsteps=100)
+		# NOTE: this was the original function used for root finding.
+		# proots, err = polyroots([a,0,c,d],error=True,maxsteps=5000000)
+		# Computation of the cubic roots.
+		# TODO special casing.
+		u_list = [mpf(1),mpc(-1,sqrt(3))/2,mpc(-1,-sqrt(3))/2]
+		Delta0 = -3 * a * c
+		Delta1 = 27 * a * a * d
+		C1 = cbrt((Delta1 + sqrt(Delta1 * Delta1 - 4 * Delta0 * Delta0 * Delta0)) / 2)
+		C2 = cbrt((Delta1 - sqrt(Delta1 * Delta1 - 4 * Delta0 * Delta0 * Delta0)) / 2)
+		if abs(C1) > abs(C2):
+			C = C1
+		else:
+			C = C2
+		proots = [(-1 / (3 * a)) * (u * C + Delta0 / (u * C)) for u in u_list]
+		# NOTE: we ignore any residual imaginary part that we know must come from numerical artefacts.
 		if Delta < 0:
-			# NOTE: here and below we ignore any residual imaginary part that we know must come from numerical artefacts.
-			# Sort the roots following the convention. proots[1] is the first complex root, proots[0] is the real one.
-			# The complex root with negative imaginary part is e3.
-			if proots[2].imag <= 0:
-				e1,e2,e3 = proots[1],proots[0].real,proots[2]
-			else:
-				e1,e2,e3 = proots[2],proots[0].real,proots[1]
+			# Sort the roots following the convention: complex with negative imaginary, real, complex with positive imaginary.
+			# Then assign the roots following the P convention (e2 real root, e1 complex with positive imaginary).
+			e3,e2,e1 = sorted(proots,key = lambda c: c.imag)
 		else:
 			# The convention in this case is to sort in descending order.
 			e1,e2,e3 = sorted([_.real for _ in proots],reverse = True)
@@ -98,7 +107,12 @@ class weierstrass_elliptic(object):
 		else:
 			return self.__invariants
 	def __init__(self,g2,g3):
-		from mpmath import mpf
+		from mpmath import mpf, mpc
+		if isinstance(g2,mpc) and isinstance(g3,mpc):
+			if g2.imag != 0 or g3.imag != 0:
+				raise ValueError('invalid invariant')
+			g2 = g2.real
+			g3 = g3.real
 		g2 = mpf(g2)
 		# Handle negative g3.
 		if g3 < 0:
@@ -142,7 +156,7 @@ class weierstrass_elliptic(object):
 		# NOTE: the Delta does not change for differences in sign of g_3.
 		retval += 'Delta:\t\t' + str(self.Delta) + '\n'
 		retval += 'Periods:\t' + str(self.periods) + '\n'
-		retval += 'Roots:\t\t' + str(self.roots) + '\n'
+		retval += 'Roots:\t\t' + str(self.roots)
 		return retval
 	def P(self,z):
 		# A+S 18.9.
@@ -314,3 +328,43 @@ class weierstrass_elliptic(object):
 		beta = x[1] - M
 		assert(alpha >= 0 and beta >= 0)
 		return alpha,beta,N,M
+	@staticmethod
+	def __reduce_to_frp(z,om1):
+		from mpmath import floor, mpc
+		N = int(floor(z.real/(2*om1)))
+		xs = z.real - N*2*om1
+		return mpc(xs,z.imag),N
+	def __ln_expansion(self,u,n_iter = 50):
+		from mpmath import ln, pi, sin, exp, mpc
+		# TODO: test for pathological cases?
+		om1, om3 = self.periods[0]/2, self.periods[1]/2
+		assert(u.real < 2*om1 and u.real >= 0)
+		assert(u.imag < 2*om3.imag and u.imag >= 0)
+		tau = om3/om1
+		q = exp(mpc(0,1)*pi()*tau)
+		eta1 = self.zeta(om1)
+		om1_2 = om1 * 2
+		retval = ln(om1_2/pi()) + eta1*u**2/(om1_2) + ln(sin(pi()*u/(om1_2)))
+		for r in range(1,n_iter + 1):
+			q_2 = q**(2*r)
+			retval += q_2/(r * (1 - q_2))*(2. * sin(r*pi()*u/(om1_2)))**2
+		return retval
+	def ln_sigma(self,u):
+		from mpmath import mpc, pi
+		# TODO: test for pathological cases?
+		om1, om3 = self.periods[0]/2, self.periods[1]/2
+		if not (u.imag >= 0 and u.imag < 2*om3.imag):
+			raise ValueError('invalid input for ln_sigma')
+		further_reduction = False
+		# This is used to further reduce, via the properties
+		# of homogeneity, the computation to a value farther
+		# from the limit where the expansion starts diverging.
+		if u.imag / (2 * om3.imag) > .5:
+			further_reduction = True
+			u = -u + 2*om1 + 2*om3
+		u_F,N = weierstrass_elliptic.__reduce_to_frp(u,om1)
+		eta1 = self.zeta(om1)
+		retval = self.__ln_expansion(u_F) + 2*N*eta1*(u_F + N*om1) - mpc(0,1)*N*pi()
+		if further_reduction:
+			retval -= (u - om1 - om3) * (2*eta1 + 2*self.zeta(om3))
+		return retval

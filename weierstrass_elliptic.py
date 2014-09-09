@@ -22,6 +22,7 @@ class weierstrass_elliptic(object):
 	def __init__(self,g2,g3):
 		from mpmath import mpf
 		g2 = mpf(g2)
+		g3 = mpf(g3)
 		#Handle negative g3.
 		#if g3 < 0:
 		#	g3 = -mpf(g3)
@@ -34,39 +35,38 @@ class weierstrass_elliptic(object):
 		self.__Delta = 4 * 4 * g2*g2*g2 - 27 * 4*4 * g3*g3
 		self.__invariants = (g2,g3)
 		#self.__user_invariants = self.__compute_user_invariants()
-		self.__roots = self.__compute_roots()
+		self.__roots = self.__compute_roots(mpf('4.0'),-g2,-g3)
 		self.__omegas = self.__compute_omegas()
 		self.__periods = self.__compute_periods()
 		#self.__user_periods = self.__compute_user_periods()
 
-	def __compute_roots(self):
-		from mpmath import  sqrt
-		from mpmath import mpf, polyroots
-		p = - self.__invariants[0] / 4.0
-		q = - self.__invariants[1] / 4.0
-		u1=1.0
-		u2=(-1.0+sqrt(3)*1j)/2.0
-		u3=(-1.0-sqrt(3)*1j)/2.0
-		Delta0 = -3.0*p
-		Delta1 = 27.0*q
-			
-		C1 = ((Delta1+sqrt(Delta1**2.0-4.0*Delta0**3.0))/2.0 +0j)**(1.0/3.0)
-		C2 = ((Delta1-sqrt(Delta1**2.0-4.0*Delta0**3.0))/2.0 +0j)**(1.0/3.0)
-	
-		#This avoids loosing numerical precision when C->0
-		if abs(C1)>abs(C2):
-			C=C1
+	def __compute_roots(self,a,c,d):
+		from mpmath import mpf, mpc, sqrt, cbrt
+		assert(all([isinstance(_,mpf) for _ in [a,c,d]]))
+		Delta = -4 * a * c*c*c - 27 * a*a * d*d
+		self.__Delta = Delta
+		# NOTE: this was the original function used for root finding.
+		# proots, err = polyroots([a,0,c,d],error=True,maxsteps=5000000)
+		# Computation of the cubic roots.
+		# TODO special casing.
+		u_list = [mpf(1),mpc(-1,sqrt(3))/2,mpc(-1,-sqrt(3))/2]
+		Delta0 = -3 * a * c
+		Delta1 = 27 * a * a * d
+		C1 = cbrt((Delta1 + sqrt(Delta1 * Delta1 - 4 * Delta0 * Delta0 * Delta0)) / 2)
+		C2 = cbrt((Delta1 - sqrt(Delta1 * Delta1 - 4 * Delta0 * Delta0 * Delta0)) / 2)
+		if abs(C1) > abs(C2):
+			C = C1
 		else:
-			C=C2
-
-		e1 = -1.0/3.0*(u1*C+Delta0/u1/C)
-		e2 = -1.0/3.0*(u2*C+Delta0/u2/C)
-		e3 = -1.0/3.0*(u3*C+Delta0/u3/C)
-
-		if self.__Delta > 0:
-			e1,e2,e3 = sorted([e1.real,e2.real,e3.real], reverse = True)
+			C = C2
+		proots = [(-1 / (3 * a)) * (u * C + Delta0 / (u * C)) for u in u_list]
+		# NOTE: we ignore any residual imaginary part that we know must come from numerical artefacts.
+		if Delta < 0:
+			# Sort the roots following the convention: complex with negative imaginary, real, complex with positive imaginary.
+			# Then assign the roots following the P convention (e2 real root, e1 complex with positive imaginary).
+			e3,e2,e1 = sorted(proots,key = lambda c: c.imag)
 		else:
-			e1,e2,e3 = sorted([e1,e2,e3], key = lambda x: x.imag, reverse = True)
+			# The convention in this case is to sort in descending order.
+			e1,e2,e3 = sorted([_.real for _ in proots],reverse = True)
 		return e1,e2,e3
 
 	def __compute_omegas(self):
@@ -144,7 +144,7 @@ class weierstrass_elliptic(object):
 	@property
 	def invariants(self):
 		from copy import deepcopy
-		return deepcopy(self.__user_invariants)
+		return deepcopy(self.__compute_user_invariants())
 	@property
 	def Delta(self):
 		from copy import deepcopy
@@ -152,11 +152,11 @@ class weierstrass_elliptic(object):
 	@property
 	def periods(self):
 		from copy import deepcopy
-		return deepcopy(self.__user_periods)
-	#@property
-	#def omegas(self):
-	#	from copy import deepcopy
-	#	return deepcopy((self.__om,self.__omp,self.__om2,self.__om2p))
+		return deepcopy(self.__compute_user_periods())
+	@property
+	def omegas(self):
+		from copy import deepcopy
+		return deepcopy(self.__omegas)
 	@property
 	def roots(self):
 		from copy import deepcopy
@@ -174,33 +174,33 @@ class weierstrass_elliptic(object):
 		retval += 'Delta:\t\t' + str(self.Delta) + '\n'
 		retval += 'Periods:\t' + str(self.periods) + '\n'
 		retval += 'Roots:\t\t' + str(self.roots) + '\n'
+		retval += 'Omegas:\t\t' + str(self.omegas) + '\n'
 		return retval
 
 	def P(self,z):
-		# 0 - Number of iterations is fixed
+		# 0 - Number of iterations (halvings) is fixed
 		# this could be adapted together with the number of terms retained
 		# in the Laurent series to increase performance .. but how?		
-		N = 4
+		N = 5
 
-		# 1 - we reduce to the fundamental period parallelogram (the one in Abramowitz)
+		# 1 - we first reduce z to the fundamental period parallelogram (the one defined in Abramowitz)
+		# and we call the new value z_r. P(z)=P(z_r) by definition of the FPP
 		T1,T2 = self.__periods
 		z_r = self.reduce_to_fpp2(z,T1,T2)
 
-		# 2 - we reduce z_r first to 1/4 FPP to further reduce the error of the iterations
-		# and then to the fundamental rectangle
-
+		# 2 - we then reduce z_r to 1/4 FPP 
 		x = z_r.real
 		y = z_r.imag
 		om,omp,om2,om2p = self.__omegas
 		
 		if self.Delta >= 0:
 			if (x>=om and y>=omp.imag): 	#R3
-				z_r = 2.0*self.__om2-z_r
-			elif (x>som): 				#R4
-				z_r = (2.0*om-z_r).conjugate()
-			elif (y>omp.imag): 			#R2
-				z_r = (z_r-2.0*omp).conjugate()
-			else: 						#R1
+				z_r = 2*om2-z_r
+			elif (x>om): 					#R4
+				z_r = (2*om-z_r).conjugate()
+			elif (y>omp.imag): 				#R2
+				z_r = (z_r-2*omp).conjugate()
+			else: 							#R1
 				z_r = z_r
 		else:
 			if (y>=0 and x<=om2.real):		#R1
@@ -208,44 +208,46 @@ class weierstrass_elliptic(object):
 			if (y>=0 and x>om2.real):		#R2
 				z_r = z_r.conjugate()
 			if (y<=0 and x<=om2.real):		#R3
-				z_r = 2.0*om-z_r
+				z_r = 2*om-z_r
 			if (y<=0 and x<=om2.real):		#R4
-				z_r = (2.0*om-z_r).conjugate()
+				z_r = (2*om-z_r).conjugate()
 		
-			if z_r.imag > om2p.imag / 2.0:		
+			# 2a - We reduce z_r to the fundamental rectangle
+			if z_r.imag > om2p.imag / 2:		
 				z_r = 2*omp - z_r
 		
-		# 3 - We half z_r N times
+		# 3 - We half z_r N times (can this be done efficiently with bit operators?)
 		for i in range(N):
-			z_r = z_r/2.0
-		# 4 - we now compute the Laurent series to the 9th term in the N-halved z_r
+			z_r = z_r/2
+
+		# 4 - we compute the Laurent series to the 9th term in the N-halved z_r
 		g2, g3 = self.__invariants
-		c2 = g2/20.0
-		c3 = g3/28.0
+		c2 = g2/20
+		c3 = g3/28
 		c23 = c2*c2*c2
 		c32 = c3*c3
-		c4 = c2*c2/3.0
-		c5 = 3.0*c2*c3/11.0
-		c6 = (2.0*c23+3.0*c32)/39.0
-		c7 = 2.0*c4*c3/11.0
-		c8 = 5.0*c2*(11.0*c23+36.0*c32)/7239.0
-		c9 = c3*(29.0*c23+11.0*c32)/2717.0
+		c4 = c2*c2/3
+		c5 = 3*c2*c3/11
+		c6 = (2*c23+3*c32)/39
+		c7 = 2*c4*c3/11
+		c8 = 5*c2*(11*c23+36*c32)/7239
+		c9 = c3*(29*c23+11*c32)/2717
 		z02=z_r*z_r
 		z04=z02*z02
 		z06=z04*z02
 		z08=z04*z04
-		P = 1.0/z02 + c2*z02 + c3*z04 + c4*z04*z02 + c5*z04*z04 + c6*z06*z04 + c7*z06*z06 + c8*z08*z06 + c9*z08*z08
+		P = 1/z02 + c2*z02 + c3*z04 + c4*z04*z02 + c5*z04*z04 + c6*z06*z04 + c7*z06*z06 + c8*z08*z06 + c9*z08*z08
 
 		# 5 - We apply the duplication formula N times
 		for j in range(N):
 			P2 = P*P
-			P = - 2.0 * P + (6*P*P-1.0/2.0*g2)*(6.0*P2-1.0/2.0*g2)/(4.0*(4.0*P2*P-g2*P-g3))
+			P = - 2 * P + (6*P2-g2/2)*(6*P2-g2/2)/(4*(4*P2*P-g2*P-g3))
 
 		# 6 - We return the appropriate value for P (according to the 1/4 FPP reduction formulas)
 		if self.Delta >=0:
 			if (x>om.real and y>omp.imag): 	#R3
 				return P
-			elif (x>om.real): 			#R4
+			elif (x>om.real): 				#R4
 				return P.conjugate()
 			elif (y>omp.imag): 			#R2
 				return P.conjugate()
