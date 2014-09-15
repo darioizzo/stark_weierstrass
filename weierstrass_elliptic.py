@@ -30,12 +30,103 @@ class weierstrass_elliptic(object):
 		self.__roots = self.__compute_roots(mpf('4.0'),-g2,-g3)
 		self.__omegas = self.__compute_omegas()
 		self.__periods = self.__compute_periods()
+		self.__maclaurin = self.__compute_maclaurin()
+		#self.__etas = self.__compute_etas()
+
+	def __compute_etas(self):
+		N=3
+		from mpmath import mpc,pi
+		g2, g3 = self.__invariants
+		c = self.__maclaurin
+		om,omp,om2,om2p = self.__omegas
+		z = omp
+
+		for i in range(N):
+			z = z/2
+
+		Delta = self.__Delta 
+		z02=z*z
+		z03=z*z02
+		z04=z02*z02
+		z05=z03*z02
+		z06=z04*z02
+		z07=z05*z02
+		z08=z06*z02
+		z09=z07*z02
+		z10=z08*z02
+		z11=z09*z02
+		etap = 1/z - c[2]*z03/3 - c[3]*z05/5-c[4]*z07/7-c[5]*z09/9-c[6]*z11/11-c[7]*z11*z02/13  -c[8]*z11*z02*z02/15-c[9]*z11*z02*z02*z02/17
+		P = 1/z02 + c[2]*z02   + c[3]*z04 + c[4]*z06 + c[5]*z08 + c[6]*z06*z04 + c[7]*z06*z06 + c[8]*z08*z06      + c[9]*z08*z08
+		Pprime = -2/z03 + 2*c[2]*z   + 4*c[3]*z03 + 6*c[4]*z05 + 8*c[5]*z07 + 10*c[6]*z09 + 12*c[7]*z11 + 14*c[8]*z07*z06  #    + 16*c[9]*z08*z07
+
+		#  We apply the duplication formulas N times
+		for j in range(N):
+			P2 = P*P
+			Ppprime = 6*P2-g2/2
+			etap = 2*etap+Ppprime/(2*Pprime)
+			Pprime = (-4*Pprime*Pprime*Pprime*Pprime+12*P*Pprime*Pprime*Ppprime-Ppprime*Ppprime*Ppprime)/(4*Pprime*Pprime*Pprime)
+			P = - 2 * P + (6*P2-g2/2)*(6*P2-g2/2)/(4*P2*P-g2*P-g3)/4
+
+		if Delta <0:
+			eta = etap.conjugate()
+		else:
+			eta = (pi*mpc(0,1)/2+etap*om)/omp #Legendre Relation
+
+		return eta,etap
+
+	def zeta(self,z):
+		N=3
+		from mpmath import mpc,pi
+		g2, g3 = self.__invariants
+		c = self.__maclaurin
+		om,omp,om2,om2p = self.__omegas
+
+		for i in range(N):
+			z = z/2
+
+		Delta = self.__Delta 
+		z02=z*z
+		z03=z*z02
+		z04=z02*z02
+		z05=z03*z02
+		z06=z04*z02
+		z07=z05*z02
+		z08=z06*z02
+		z09=z07*z02
+		z10=z08*z02
+		z11=z09*z02
+		zeta = 1/z - c[2]*z03/3 - c[3]*z05/5-c[4]*z07/7-c[5]*z09/9-c[6]*z11/11-c[7]*z11*z02/13  -c[8]*z11*z02*z02/15-c[9]*z11*z02*z02*z02/17
+		P = 1/z02 + c[2]*z02   + c[3]*z04 + c[4]*z06 + c[5]*z08 + c[6]*z06*z04 + c[7]*z06*z06 + c[8]*z08*z06      + c[9]*z08*z08
+		Pprime = -2/z03 + 2*c[2]*z   + 4*c[3]*z03 + 6*c[4]*z05 + 8*c[5]*z07 + 10*c[6]*z09 + 12*c[7]*z11 + 14*c[8]*z07*z06  #    + 16*c[9]*z08*z07
+
+		#  We apply the duplication formulas N times
+		for j in range(N):
+			P2 = P*P
+			Ppprime = 6*P2-g2/2
+			zeta = 2*zeta+Ppprime/(2*Pprime)
+			Pprime = (-4*Pprime*Pprime*Pprime*Pprime+12*P*Pprime*Pprime*Ppprime-Ppprime*Ppprime*Ppprime)/(4*Pprime*Pprime*Pprime)
+			P = - 2 * P + (6*P2-g2/2)*(6*P2-g2/2)/(4*P2*P-g2*P-g3)/4
+		return zeta
+
+	def __compute_maclaurin(self):
+		c = list([0]*10)
+		g2, g3 = self.__invariants
+		c[2] = g2/20
+		c[3] = g3/28
+		c[4] = c[2]*c[2]/3
+		c23 = c[2]*c[2]*c[2]
+		c32 = c[3]*c[3]
+		c[5] = 3*c[2]*c[3]/11
+		c[6] = (2*c23+3*c32)/39
+		c[7] = 2*c[4]*c[3]/11
+		c[8] = 5*c[2]*(11*c23+36*c32)/7239
+		c[9] = c[3]*(29*c23+11*c32)/2717
+		return c
 
 	def __compute_roots(self,a,c,d):
 		from mpmath import mpf, mpc, sqrt, cbrt
 		assert(all([isinstance(_,mpf) for _ in [a,c,d]]))
-		Delta = -4 * a * c*c*c - 27 * a*a * d*d
-		self.__Delta = Delta
+		Delta = self.__Delta
 		# NOTE: this was the original function used for root finding.
 		# proots, err = polyroots([a,0,c,d],error=True,maxsteps=5000000)
 		# Computation of the cubic roots.
@@ -63,7 +154,7 @@ class weierstrass_elliptic(object):
 	def __compute_omegas(self):
 		# A+S 18.9.
 		from mpmath import sqrt, ellipk, mpc, pi, mpf
-		Delta = self.Delta
+		Delta = self.__Delta
 		e1, e2, e3 = self.__roots
 		if Delta > 0:
 			m = (e2 - e3) / (e1 - e3)
@@ -104,14 +195,14 @@ class weierstrass_elliptic(object):
 
 	def __compute_periods(self):
 		om,omp,om2,om2p = self.__omegas
-		if self.Delta >= 0:
+		if self.__Delta >= 0:
 			return 2 * om, 2 * omp
 		else:
 			return 2 *(om + omp), 2 * omp
 
 	def __compute_user_periods(self):
 		from mpmath import mpc
-		Delta = self.Delta
+		Delta = self.__Delta
 		# NOTE: here there is no need to handle Delta == 0 separately,
 		# as it falls under the case of om purely real and omp purely imaginary.
 		if Delta >= 0:
@@ -136,6 +227,10 @@ class weierstrass_elliptic(object):
 	def invariants(self):
 		from copy import deepcopy
 		return deepcopy(self.__compute_user_invariants())
+	@property
+	def etas(self):
+		from copy import deepcopy
+		return deepcopy(self.__compute_etas())
 	@property
 	def Delta(self):
 		from copy import deepcopy
@@ -172,7 +267,7 @@ class weierstrass_elliptic(object):
 		# 0 - Number of iterations (halvings) is fixed
 		# this could be adapted together with the number of terms retained
 		# in the Laurent series to increase performance .. but how?		
-		N = 5
+		N = 4
 
 		# 1 - we first reduce z to the fundamental period parallelogram (the one defined in Abramowitz)
 		# and we call the new value z_r. P(z)=P(z_r) by definition of the FPP
@@ -184,7 +279,7 @@ class weierstrass_elliptic(object):
 		y = z_r.imag
 		om,omp,om2,om2p = self.__omegas
 		
-		if self.Delta >= 0:
+		if self.__Delta >= 0:
 			if (x>=om and y>=omp.imag): 	#R3
 				z_r = 2*om2-z_r
 			elif (x>om): 					#R4
@@ -213,36 +308,28 @@ class weierstrass_elliptic(object):
 
 		# 4 - we compute the Laurent series to the 9th term in the N-halved z_r
 		g2, g3 = self.__invariants
-		c2 = g2/20
-		c3 = g3/28
-		c23 = c2*c2*c2
-		c32 = c3*c3
-		c4 = c2*c2/3
-		c5 = 3*c2*c3/11
-		c6 = (2*c23+3*c32)/39
-		c7 = 2*c4*c3/11
-		c8 = 5*c2*(11*c23+36*c32)/7239
-		c9 = c3*(29*c23+11*c32)/2717
+		c = self.__maclaurin
+
 		z02=z_r*z_r
 		z04=z02*z02
 		z06=z04*z02
 		z08=z04*z04
-		P = 1/z02 + c2*z02 + c3*z04 + c4*z04*z02 + c5*z04*z04 + c6*z06*z04 + c7*z06*z06 + c8*z08*z06 + c9*z08*z08
+		P = 1/z02 + c[2]*z02 + c[3]*z04 + c[4]*z06 + c[5]*z08 + c[6]*z06*z04 + c[7]*z06*z06 + c[8]*z08*z06# + c[9]*z08*z08
 
 		# 5 - We apply the duplication formula N times
 		for j in range(N):
 			P2 = P*P
-			P = - 2 * P + (6*P2-g2/2)*(6*P2-g2/2)/(4*(4*P2*P-g2*P-g3))
+			P = - 2 * P + (6*P2-g2/2)*(6*P2-g2/2)/(4*P2*P-g2*P-g3)/4
 
 		# 6 - We return the appropriate value for P (according to the 1/4 FPP reduction formulas)
-		if self.Delta >=0:
+		if self.__Delta >=0:
 			if (x>om.real and y>omp.imag): 	#R3
 				return P
 			elif (x>om.real): 				#R4
 				return P.conjugate()
-			elif (y>omp.imag): 			#R2
+			elif (y>omp.imag): 				#R2
 				return P.conjugate()
-			else: 						#R1
+			else: 							#R1
 				return P
 		else:
 			if (y>=0 and x<=om2.real):		#R1
@@ -251,9 +338,31 @@ class weierstrass_elliptic(object):
 				return P.conjugate()
 			if (y<=0 and x>om2.real):		#R3
 				return P
-			if (y>0 and x>om2.real):			#R4
+			if (y>0 and x>om2.real):		#R4
 				return P.conjugate()
-		
+
+	def Ptheta(self,z):
+		from mpmath import pi, jtheta, exp, mpc
+		e1,e2,e3 = self.__roots
+		om,omp,om2,om2p = self.__omegas
+		Delta = self.__Delta
+		if Delta > 0:
+			tau = omp/om
+			q = exp(mpc(0,1)*pi*tau)
+			v = (pi * z) / (2*om)
+			omega = om
+			e = e1
+		else:
+			tau2 = om2p/(2*om2)
+			q = mpc(0,1)*exp(mpc(0,1)*pi*tau2)
+			v = (pi * z) / (2*om2)
+			omega = om2
+			e = e2
+
+		retval = e+pi**2/(4*omega*omega)*( jtheta(n=1,z=0,q=q,derivative=1) * jtheta(n=2,z=v,q=q,derivative=0) 
+			/ ( jtheta(n=2,z=0,q=q,derivative=0) * jtheta(n=1,z=v,q=q,derivative=0) ) )**2
+		return retval
+
 	def Pprime(self,z):
 		# 1 - We compute P
 		P = self.P(z)
